@@ -146,28 +146,51 @@ func readItems(jsonfile string) map[int]Item {
 	return items
 }
 
-func itemHandler(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		getItem(w, r) // get item
-	case http.MethodPost:
-		postItem(w, r) // post item
-	//case http.MethodPut:
-	//updateItem(w, r) // update item item = append(items[id, items]) // append items put
-	case http.MethodDelete:
-		deleteItem(w, r) // delete item
-	default:
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed) // method not allowed
+type Route struct {
+	Method  string
+	Path    string
+	Handler http.HandlerFunc
+}
+
+func requestRouter(w http.ResponseWriter, request *http.Request) {
+	getItemRoute := Route{
+		Method:  http.MethodGet,
+		Path:    "/GET/",
+		Handler: getItem,
 	}
+	postItemRoute := Route{
+		Method:  http.MethodPost,
+		Path:    "/POST/",
+		Handler: postItem,
+	}
+	deleteItemRoute := Route{
+		Method:  http.MethodDelete,
+		Path:    "/DELETE/",
+		Handler: deleteItem,
+	}
+
+	routes := []Route{getItemRoute, postItemRoute, deleteItemRoute}
+
+	if request.Method != http.MethodGet && request.Method != http.MethodPost && request.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	for _, route := range routes {
+		if request.Method == route.Method && strings.HasPrefix(request.URL.Path, route.Path) {
+			route.Handler(w, request)
+			return
+		}
+	}
+
+	http.Error(w, "Not found", http.StatusNotFound)
 }
 
 func main() {
 	jsonCreate(jsonfile) // create json file
 	readItems(jsonfile)  // read items
 
-	http.HandleFunc("/GET/", itemHandler)    // get item
-	http.HandleFunc("/POST/", itemHandler)   // post item
-	http.HandleFunc("/DELETE/", itemHandler) // delete item
+	http.HandleFunc("/", requestRouter)
 
 	http.ListenAndServe(":8080", nil) // listen and serve
 }
