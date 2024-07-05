@@ -106,7 +106,7 @@ var jsonDatabase = JsonDatabase{
 }
 
 func getItem(w http.ResponseWriter, r *http.Request) {
-	id, _, err := extractParams(w, r)
+	id, _, err := extractPathParameters(r)
 	if err != nil {
 		log.Println("Invalid Parameter", err)
 		http.Error(w, "Invalid Parameter", http.StatusBadRequest)
@@ -129,7 +129,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func deleteItem(w http.ResponseWriter, r *http.Request) {
-	id, _, err := extractParams(w, r)
+	id, _, err := extractPathParameters(r)
 	if err != nil {
 		log.Println("Invalid Parameter", err)
 		http.Error(w, "Invalid Parameter", http.StatusBadRequest)
@@ -160,7 +160,7 @@ func deleteItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func postItem(w http.ResponseWriter, r *http.Request) {
-	id, name, err := extractParams(w, r)
+	id, name, err := extractPathParameters(r)
 	if err != nil {
 		log.Println("Invalid Parameter", err)
 		http.Error(w, "Invalid Parameter", http.StatusBadRequest)
@@ -197,7 +197,7 @@ func getNthPathSegment(pathSegments *[]string, n int) (string, error) {
 	return (*pathSegments)[n], nil
 }
 
-func extractParams(w http.ResponseWriter, r *http.Request) (int, string, error) {
+func extractPathParameters(r *http.Request) (int, string, error) {
 	pathSegments := strings.Split(r.URL.Path, "/")
 
 	idStr, err := getNthPathSegment(&pathSegments, 2)
