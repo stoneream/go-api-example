@@ -193,7 +193,7 @@ func getNthPathSegment(pathSegments *[]string, n int) (string, error) {
 func extractPathParameters(r *http.Request) (int, error) {
 	pathSegments := strings.Split(r.URL.Path, "/")
 
-	idStr, err := getNthPathSegment(&pathSegments, 2)
+	idStr, err := getNthPathSegment(&pathSegments, 0)
 	if err != nil {
 		return 0, err
 	}
