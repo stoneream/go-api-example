@@ -22,6 +22,7 @@ type ItemDict = map[int]Item
 type JsonDatabase struct {
 	JsonFilePath  string
 	jsonFileMutex sync.Mutex
+	DatabaseMutex sync.Mutex
 }
 
 func (j *JsonDatabase) Exists() bool {
@@ -117,6 +118,9 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func deleteItem(w http.ResponseWriter, r *http.Request) {
+	jsonDatabase.DatabaseMutex.Lock()
+	defer jsonDatabase.DatabaseMutex.Unlock()
+
 	id, _ := extractParams(w, r)
 	loadedItems, err := jsonDatabase.ReadJsonFile()
 
@@ -135,6 +139,9 @@ func deleteItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func postItem(w http.ResponseWriter, r *http.Request) {
+	jsonDatabase.DatabaseMutex.Lock()
+	defer jsonDatabase.DatabaseMutex.Unlock()
+
 	id, name := extractParams(w, r)
 	loadedItems, err := jsonDatabase.ReadJsonFile()
 
