@@ -74,9 +74,14 @@ func (j *JsonDatabase) ReadJsonFile() (ItemDict, error) {
 	return itemDict, nil
 }
 
-func (j *JsonDatabase) WriteJsonFile(items ItemDict) error {
+func (j *JsonDatabase) WriteJsonFile(itemDict ItemDict) error {
 	j.jsonFileMutex.Lock()
 	defer j.jsonFileMutex.Unlock()
+
+	items := make([]Item, 0)
+	for _, item := range itemDict {
+		items = append(items, item)
+	}
 
 	bytes, _ := json.Marshal(items)
 	file, err := os.Open(j.JsonFilePath)
@@ -101,79 +106,114 @@ var jsonDatabase = JsonDatabase{
 }
 
 func getItem(w http.ResponseWriter, r *http.Request) {
-	id, _ := extractParams(w, r)
-	loadedItems, err := jsonDatabase.ReadJsonFile()
+	id, _, err := extractParams(w, r)
+	if err != nil {
+		log.Println("Invalid Parameter", err)
+		http.Error(w, "Invalid Parameter", http.StatusBadRequest)
+		return
+	}
 
+	loadedItems, err := jsonDatabase.ReadJsonFile()
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if id != loadedItems[id].ID {
+		log.Println("Invalid ID", id, loadedItems[id])
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
 	} else {
-		if id != loadedItems[id].ID {
-			log.Println("Invalid ID", id, loadedItems[id])
-			http.Error(w, "Invalid ID", http.StatusBadRequest)
-		} else {
-			json.NewEncoder(w).Encode(loadedItems[id])
-			log.Println("Get item", loadedItems[id])
-		}
+		json.NewEncoder(w).Encode(loadedItems[id])
+		log.Println("Get item", loadedItems[id])
 	}
 }
 
 func deleteItem(w http.ResponseWriter, r *http.Request) {
+	id, _, err := extractParams(w, r)
+	if err != nil {
+		log.Println("Invalid Parameter", err)
+		http.Error(w, "Invalid Parameter", http.StatusBadRequest)
+		return
+	}
+
 	jsonDatabase.DatabaseMutex.Lock()
 	defer jsonDatabase.DatabaseMutex.Unlock()
 
-	id, _ := extractParams(w, r)
 	loadedItems, err := jsonDatabase.ReadJsonFile()
 
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	} else {
-		if id != loadedItems[id].ID {
-			log.Println("Invalid ID", id, loadedItems[id])
-			http.Error(w, "Invalid ID", http.StatusBadRequest)
-		} else {
-			delete(loadedItems, id)
-			jsonDatabase.WriteJsonFile(loadedItems)
-			log.Println("Deleted item", loadedItems[id])
-		}
+		return
 	}
+
+	if id != loadedItems[id].ID {
+		log.Println("Invalid ID", id, loadedItems[id])
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	delete(loadedItems, id)
+	jsonDatabase.WriteJsonFile(loadedItems)
+	log.Println("Deleted item", loadedItems[id])
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func postItem(w http.ResponseWriter, r *http.Request) {
+	id, name, err := extractParams(w, r)
+	if err != nil {
+		log.Println("Invalid Parameter", err)
+		http.Error(w, "Invalid Parameter", http.StatusBadRequest)
+		return
+	}
+
 	jsonDatabase.DatabaseMutex.Lock()
 	defer jsonDatabase.DatabaseMutex.Unlock()
 
-	id, name := extractParams(w, r)
 	loadedItems, err := jsonDatabase.ReadJsonFile()
-
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	} else {
-		var newItem Item
+		return
+	}
 
-		if err := json.NewDecoder(r.Body).Decode(&newItem); err != nil {
-			http.Error(w, "Invalid input", http.StatusBadRequest)
-		} else {
-			loadedItems[newItem.ID] = Item{ID: id, Name: name}
-			jsonDatabase.WriteJsonFile(loadedItems)
-			log.Println("Posted item", loadedItems[id])
-			json.NewEncoder(w).Encode(loadedItems[id])
-		}
+	var newItem Item
+
+	if err := json.NewDecoder(r.Body).Decode(&newItem); err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+	} else {
+		loadedItems[newItem.ID] = Item{ID: id, Name: name}
+		jsonDatabase.WriteJsonFile(loadedItems)
+		log.Println("Posted item", loadedItems[id])
+		json.NewEncoder(w).Encode(loadedItems[id])
 	}
 }
 
-func extractParams(w http.ResponseWriter, r *http.Request) (int, string) {
-	path := strings.TrimPrefix(r.URL.Path, "/") // trim path
-	splited := strings.Split(path, "/")         // split path
-	fmt.Println(splited)                        // print splited
-	id, err := strconv.Atoi(splited[1])         // transform string to int
-	name := splited[2]                          // name is item
-
-	if err != nil {
-		fmt.Println("hugahuga", r.URL.Path, err, splited[1]) // print error
-		http.Error(w, "Invalid ID", http.StatusBadRequest)   // invalid id
-
+func getNthPathSegment(pathSegments *[]string, n int) (string, error) {
+	if n < 0 || n >= len(*pathSegments) {
+		return "", fmt.Errorf("index %d out of range", n)
 	}
-	return id, name // retrun id, name
+
+	return (*pathSegments)[n], nil
+}
+
+func extractParams(w http.ResponseWriter, r *http.Request) (int, string, error) {
+	pathSegments := strings.Split(r.URL.Path, "/")
+
+	idStr, err := getNthPathSegment(&pathSegments, 2)
+	if err != nil {
+		return 0, "", err
+	}
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		return 0, "", err
+	}
+
+	name, err := getNthPathSegment(&pathSegments, 3)
+	if err != nil {
+		return 0, "", err
+	}
+
+	return id, name, nil
 }
 
 type Route struct {
