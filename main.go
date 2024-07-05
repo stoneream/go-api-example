@@ -74,12 +74,12 @@ func (j *JsonDatabase) ReadJsonFile() (ItemDict, error) {
 	return itemDict, nil
 }
 
-func (j *JsonDatabase) WriteJsonFile(itemDict ItemDict) error {
+func (j *JsonDatabase) WriteJsonFile(itemDict *ItemDict) error {
 	j.jsonFileMutex.Lock()
 	defer j.jsonFileMutex.Unlock()
 
 	items := make([]Item, 0)
-	for _, item := range itemDict {
+	for _, item := range *itemDict {
 		items = append(items, item)
 	}
 
@@ -153,7 +153,7 @@ func deleteItem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	delete(loadedItems, id)
-	jsonDatabase.WriteJsonFile(loadedItems)
+	jsonDatabase.WriteJsonFile(&loadedItems)
 	log.Println("Deleted item", loadedItems[id])
 
 	w.WriteHeader(http.StatusNoContent)
@@ -182,7 +182,8 @@ func postItem(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid input", http.StatusBadRequest)
 	} else {
 		loadedItems[newItem.ID] = Item{ID: id, Name: name}
-		jsonDatabase.WriteJsonFile(loadedItems)
+		jsonDatabase.WriteJsonFile(&loadedItems)
+
 		log.Println("Posted item", loadedItems[id])
 		json.NewEncoder(w).Encode(loadedItems[id])
 	}
