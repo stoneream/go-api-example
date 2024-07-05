@@ -17,96 +17,141 @@ type Item struct {
 	Name string `json:"name"`
 }
 
-var (
-	jsonfile = "./db/data.json"
-	items    = make(map[int]Item)
-	mu       sync.Mutex
-)
+type ItemDict = map[int]Item
+
+type JsonDatabase struct {
+	JsonFilePath  string
+	jsonFileMutex sync.Mutex
+}
+
+func (j *JsonDatabase) Exists() bool {
+	_, err := os.Stat(j.JsonFilePath)
+	return err == nil
+}
+
+func (j *JsonDatabase) CreateJsonFile() error {
+	j.jsonFileMutex.Lock()
+	defer j.jsonFileMutex.Unlock()
+
+	file, err := os.Create(j.JsonFilePath)
+	if err != nil {
+		log.Println("create err", err)
+		return err
+	}
+	defer file.Close()
+
+	return nil
+}
+
+func (j *JsonDatabase) ReadJsonFile() (ItemDict, error) {
+	j.jsonFileMutex.Lock()
+	defer j.jsonFileMutex.Unlock()
+
+	file, err := os.Open(j.JsonFilePath)
+	if err != nil {
+		log.Println("open err", err)
+		return nil, err
+	}
+	defer file.Close()
+
+	bytedata, err := io.ReadAll(file)
+	if err != nil {
+		log.Println("read err", err)
+		return nil, err
+	}
+
+	items := make([]Item, 0)
+	itemDict := make(ItemDict)
+	if err := json.Unmarshal(bytedata, &items); err != nil {
+		log.Println("json unmarshal err", err)
+		return nil, err
+	}
+	for _, item := range items {
+		itemDict[item.ID] = item
+	}
+
+	return itemDict, nil
+}
+
+func (j *JsonDatabase) WriteJsonFile(items ItemDict) error {
+	j.jsonFileMutex.Lock()
+	defer j.jsonFileMutex.Unlock()
+
+	bytes, _ := json.Marshal(items)
+	file, err := os.Open(j.JsonFilePath)
+	if err != nil {
+		log.Println("open err", err)
+		return err
+	}
+	defer file.Close()
+
+	err = os.WriteFile(j.JsonFilePath, bytes, 0644)
+	if err != nil {
+		log.Println("write err", err)
+		return err
+	}
+
+	return nil
+}
+
+var jsonDatabase = JsonDatabase{
+	JsonFilePath:  "./db/data.json",
+	jsonFileMutex: sync.Mutex{},
+}
 
 func getItem(w http.ResponseWriter, r *http.Request) {
-	mu.Lock()                    // lock
-	defer mu.Unlock()            // defer unlock
-	readItems(jsonfile)          // read items
-	id, _ := extractParams(w, r) // extract params
-	if id != int(items[id].ID) {
-		log.Println("Invalid ID", id, items[id])
-		http.Error(w, "Invalid ID", http.StatusBadRequest) // invalid id
+	id, _ := extractParams(w, r)
+	loadedItems, err := jsonDatabase.ReadJsonFile()
+
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	} else {
-		json.NewEncoder(w).Encode(items[id]) // encode json
-		log.Println("Get item", items[id])   // get item
+		if id != loadedItems[id].ID {
+			log.Println("Invalid ID", id, loadedItems[id])
+			http.Error(w, "Invalid ID", http.StatusBadRequest)
+		} else {
+			json.NewEncoder(w).Encode(loadedItems[id])
+			log.Println("Get item", loadedItems[id])
+		}
 	}
 }
 
 func deleteItem(w http.ResponseWriter, r *http.Request) {
-	mu.Lock()
-	defer mu.Unlock()
+	id, _ := extractParams(w, r)
+	loadedItems, err := jsonDatabase.ReadJsonFile()
 
-	id, _ := extractParams(w, r) // extract id
-	if id != items[id].ID {
-		http.Error(w, "Invalid ID", http.StatusBadRequest) // invalid id
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	} else {
+		if id != loadedItems[id].ID {
+			log.Println("Invalid ID", id, loadedItems[id])
+			http.Error(w, "Invalid ID", http.StatusBadRequest)
+		} else {
+			delete(loadedItems, id)
+			jsonDatabase.WriteJsonFile(loadedItems)
+			log.Println("Deleted item", loadedItems[id])
+		}
 	}
-	delete(items, id)                      // delete item
-	jsonSave(items, jsonfile)              // save json
-	fmt.Println("Deleted item", items[id]) // deleted item
 }
 
 func postItem(w http.ResponseWriter, r *http.Request) {
-	mu.Lock()
-	defer mu.Unlock()
 	id, name := extractParams(w, r)
-	items := readItems(jsonfile)
-	var newItem Item
+	loadedItems, err := jsonDatabase.ReadJsonFile()
 
-	if err := json.NewDecoder(r.Body).Decode(&newItem); err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest) // invalid input
-		return
-	}
-
-	items[newItem.ID] = Item{ID: id, Name: name} // new item
-
-	w.Header().Set("Content-Type", "application/json") // set content type
-	jsonSave(items, jsonfile)
-
-	fmt.Println("Posted item", items[id]) // posted item
-	json.NewEncoder(w).Encode(items[id])  // encode json
-}
-
-func jsonSave(items map[int]Item, jsonfile string) {
-	mu.Lock()
-	defer mu.Unlock()
-	bytes, _ := json.Marshal(items)            // marshal items
-	file, _ := os.Open(jsonfile)               // open file
-	defer file.Close()                         // close file
-	err := os.WriteFile(jsonfile, bytes, 0644) // write file
 	if err != nil {
-		log.Println("file", err) // write file error
-		panic(err)               // panic error
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	} else {
-		log.Println("file saved", items) // file saved
-	}
-}
+		var newItem Item
 
-func jsonCreate(jsonfile string) *os.File {
-	mu.Lock()
-	defer mu.Unlock()
-
-	fstat, err := os.Stat(jsonfile) // read file
-	if err != nil {
-		_, err := os.Create(jsonfile) // create json file
-		if err != nil {
-			log.Println("file create error", err) // create file error
-			panic(err)                            // panic error
+		if err := json.NewDecoder(r.Body).Decode(&newItem); err != nil {
+			http.Error(w, "Invalid input", http.StatusBadRequest)
+		} else {
+			loadedItems[newItem.ID] = Item{ID: id, Name: name}
+			jsonDatabase.WriteJsonFile(loadedItems)
+			log.Println("Posted item", loadedItems[id])
+			json.NewEncoder(w).Encode(loadedItems[id])
 		}
 	}
-	log.Println("file name", os.DirFS(fstat.Name())) // stat file
-	file, err := os.Open(jsonfile)
-	if err != nil {
-		log.Println("file", err) // open file error
-		panic(err)               // panic error
-	}
-	defer file.Close()
-	log.Println("file opened", file) // read file
-	return file
 }
 
 func extractParams(w http.ResponseWriter, r *http.Request) (int, string) {
@@ -124,35 +169,13 @@ func extractParams(w http.ResponseWriter, r *http.Request) (int, string) {
 	return id, name // retrun id, name
 }
 
-func readItems(jsonfile string) map[int]Item {
-	file, err := os.Open(jsonfile)
-	if err != nil {
-		log.Println("open err", err)
-	}
-	defer file.Close()
-
-	bytedata, err := io.ReadAll(file)
-	if err != nil {
-		log.Println("read err", err)
-	}
-
-	var tempItem []Item
-	if err := json.Unmarshal(bytedata, &tempItem); err != nil {
-		log.Println("json unmarshal err", err)
-	}
-	for _, item := range tempItem {
-		items[item.ID] = item
-	}
-	return items
-}
-
 type Route struct {
 	Method  string
 	Path    string
 	Handler http.HandlerFunc
 }
 
-func requestRouter(w http.ResponseWriter, request *http.Request) {
+func requestRouter(responseWriter http.ResponseWriter, request *http.Request) {
 	getItemRoute := Route{
 		Method:  http.MethodGet,
 		Path:    "/GET/",
@@ -172,25 +195,29 @@ func requestRouter(w http.ResponseWriter, request *http.Request) {
 	routes := []Route{getItemRoute, postItemRoute, deleteItemRoute}
 
 	if request.Method != http.MethodGet && request.Method != http.MethodPost && request.Method != http.MethodDelete {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		http.Error(responseWriter, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	for _, route := range routes {
 		if request.Method == route.Method && strings.HasPrefix(request.URL.Path, route.Path) {
-			route.Handler(w, request)
+			route.Handler(responseWriter, request)
 			return
 		}
 	}
 
-	http.Error(w, "Not found", http.StatusNotFound)
+	http.Error(responseWriter, "Not found", http.StatusNotFound)
 }
 
 func main() {
-	jsonCreate(jsonfile) // create json file
-	readItems(jsonfile)  // read items
+	if !jsonDatabase.Exists() {
+		err := jsonDatabase.CreateJsonFile()
+		if err != nil {
+			log.Println("json file create error", err)
+			panic(err)
+		}
+	}
 
 	http.HandleFunc("/", requestRouter)
-
-	http.ListenAndServe(":8080", nil) // listen and serve
+	http.ListenAndServe(":8080", nil)
 }
