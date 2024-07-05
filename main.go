@@ -106,7 +106,7 @@ var jsonDatabase = JsonDatabase{
 }
 
 func getItem(w http.ResponseWriter, r *http.Request) {
-	id, _, err := extractPathParameters(r)
+	id, err := extractPathParameters(r)
 	if err != nil {
 		log.Println("Invalid Parameter", err)
 		http.Error(w, "Invalid Parameter", http.StatusBadRequest)
@@ -119,17 +119,17 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if id != loadedItems[id].ID {
-		log.Println("Invalid ID", id, loadedItems[id])
-		http.Error(w, "Invalid ID", http.StatusBadRequest)
-	} else {
-		json.NewEncoder(w).Encode(loadedItems[id])
-		log.Println("Get item", loadedItems[id])
+	if _, ok := loadedItems[id]; !ok {
+		http.Error(w, "Not found", http.StatusNotFound)
+		return
 	}
+
+	json.NewEncoder(w).Encode(loadedItems[id])
+	log.Println("Get item", loadedItems[id])
 }
 
 func deleteItem(w http.ResponseWriter, r *http.Request) {
-	id, _, err := extractPathParameters(r)
+	id, err := extractPathParameters(r)
 	if err != nil {
 		log.Println("Invalid Parameter", err)
 		http.Error(w, "Invalid Parameter", http.StatusBadRequest)
@@ -146,9 +146,8 @@ func deleteItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if id != loadedItems[id].ID {
-		log.Println("Invalid ID", id, loadedItems[id])
-		http.Error(w, "Invalid ID", http.StatusBadRequest)
+	if _, ok := loadedItems[id]; !ok {
+		http.Error(w, "Not found", http.StatusNotFound)
 		return
 	}
 
@@ -160,9 +159,9 @@ func deleteItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func postItem(w http.ResponseWriter, r *http.Request) {
-	id, name, err := extractPathParameters(r)
-	if err != nil {
-		log.Println("Invalid Parameter", err)
+	var newItem Item
+
+	if err := json.NewDecoder(r.Body).Decode(&newItem); err != nil {
 		http.Error(w, "Invalid Parameter", http.StatusBadRequest)
 		return
 	}
@@ -176,17 +175,11 @@ func postItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var newItem Item
+	loadedItems[newItem.ID] = newItem
+	jsonDatabase.WriteJsonFile(&loadedItems)
 
-	if err := json.NewDecoder(r.Body).Decode(&newItem); err != nil {
-		http.Error(w, "Invalid input", http.StatusBadRequest)
-	} else {
-		loadedItems[newItem.ID] = Item{ID: id, Name: name}
-		jsonDatabase.WriteJsonFile(&loadedItems)
-
-		log.Println("Posted item", loadedItems[id])
-		json.NewEncoder(w).Encode(loadedItems[id])
-	}
+	log.Println("Posted item", loadedItems[newItem.ID])
+	json.NewEncoder(w).Encode(loadedItems[newItem.ID])
 }
 
 func getNthPathSegment(pathSegments *[]string, n int) (string, error) {
@@ -197,24 +190,19 @@ func getNthPathSegment(pathSegments *[]string, n int) (string, error) {
 	return (*pathSegments)[n], nil
 }
 
-func extractPathParameters(r *http.Request) (int, string, error) {
+func extractPathParameters(r *http.Request) (int, error) {
 	pathSegments := strings.Split(r.URL.Path, "/")
 
 	idStr, err := getNthPathSegment(&pathSegments, 2)
 	if err != nil {
-		return 0, "", err
+		return 0, err
 	}
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		return 0, "", err
+		return 0, err
 	}
 
-	name, err := getNthPathSegment(&pathSegments, 3)
-	if err != nil {
-		return 0, "", err
-	}
-
-	return id, name, nil
+	return id, nil
 }
 
 type Route struct {
@@ -224,19 +212,22 @@ type Route struct {
 }
 
 func requestRouter(responseWriter http.ResponseWriter, request *http.Request) {
+	// GET /{id}
 	getItemRoute := Route{
 		Method:  http.MethodGet,
-		Path:    "/GET/",
+		Path:    "/",
 		Handler: getItem,
 	}
+	// POST /
 	postItemRoute := Route{
 		Method:  http.MethodPost,
-		Path:    "/POST/",
+		Path:    "/",
 		Handler: postItem,
 	}
+	// DELETE /{id}
 	deleteItemRoute := Route{
 		Method:  http.MethodDelete,
-		Path:    "/DELETE/",
+		Path:    "/",
 		Handler: deleteItem,
 	}
 
